@@ -2,12 +2,11 @@ from flask import Flask, request, redirect
 import requests as tg_requests
 from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
-import os
 import time
 import random
-import json
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pymongo import MongoClient, UpdateOne
 
 app = Flask(__name__)
 
@@ -16,36 +15,38 @@ TOKEN = "8718984140:AAG5A6qMHlzGicaYUdDvgHx0Po5kKNIs55I"
 CHAT_IDS = ["617384936", "960647529"]
 MY_CHAT_ID = "617384936"
 
-# Твой адрес на PythonAnywhere (замени ТВОЙ_ЛОГИН на реальный)
+# Твой адрес на Render
 HOST_URL = "https://flask-app-pych.onrender.com"
 
 SHAFA_URLS = [
     "https://shafa.ua/uk/clothes?brands=4&price_to=800&search_text=%D0%BE%D0%BB%D1%96%D0%BC%D0%BF%D1%96%D0%B9%D0%BA%D0%B0&sort=4",
 ]
 
-DB_FILE = os.path.join(os.path.dirname(__file__), "seen_shafa.json")
+# Строка подключения из MongoDB Atlas (замени на свою)
+MONGO_URI = "mongodb+srv://<waano2467_db_user>:<cCznoKoPt272dPyt>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority"
 # =============================================
 
+client = MongoClient(MONGO_URI)
+db = client["shafa_db"]
+collection = db["seen_ads"]
+
 def load_seen():
-    try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    seen = {}
+    for doc in collection.find():
+        seen[doc["_id"]] = doc["price"]
+    return seen
 
 def save_seen_batch(new_data_dict):
-    if not new_data_dict:
-        return
-    seen = load_seen()
-    seen.update(new_data_dict)
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(seen, f, ensure_ascii=False, indent=2)
+    operations = []
+    for ad_id, price in new_data_dict.items():
+        operations.append(UpdateOne({"_id": ad_id}, {"$set": {"price": price}}, upsert=True))
+    
+    # При наличии новых данных выполняется массовое обновление
+    operations and collection.bulk_write(operations)
 
 def send_telegram_ad(ad):
-    if ad.get('is_discount'):
-        caption = f"📉 <b>Зниження ціни на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n❌ Стара ціна: <s>{ad['old_price']}</s>\n✅ Нова ціна: {ad['price']}"
-    else:
-        caption = f"🔥 <b>Нова річ на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n💰 {ad['price']}"
+    is_discount = ad.get('is_discount')
+    caption = f"📉 <b>Зниження ціни на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n❌ Стара ціна: <s>{ad['old_price']}</s>\n✅ Нова ціна: {ad['price']}" if is_discount else f"🔥 <b>Нова річ на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n💰 {ad['price']}"
         
     short_title = quote(ad['title'][:25])
     safe_url = quote(ad['url'])
@@ -54,7 +55,6 @@ def send_telegram_ad(ad):
     photo_to_send = ad.get('image')
 
     for chat_id in CHAT_IDS:
-        # Генерируем персональную ссылку для каждого пользователя
         redirect_link = f"{HOST_URL}/go?url={safe_url}&user={chat_id}&title={short_title}"
         
         reply_markup = {
@@ -87,10 +87,10 @@ def send_telegram_ad(ad):
 
                 if response.status_code == 200:
                     success = True
-                    if not cached_file_id and current_photo:
-                        result_data = response.json()
-                        if 'photo' in result_data.get('result', {}):
-                            cached_file_id = result_data['result']['photo'][-1]['file_id']
+                    result_data = response.json()
+                    
+                    # Кеширование файла ускоряет последующую отправку
+                    (not cached_file_id and current_photo and 'photo' in result_data.get('result', {})) and (cached_file_id := result_data['result']['photo'][-1]['file_id'])
                     
                     time.sleep(1.5) 
                     
@@ -100,7 +100,7 @@ def send_telegram_ad(ad):
                 else:
                     photo_to_send = None 
 
-            except Exception as e:
+            except Exception:
                 time.sleep(2)
 
             attempts += 1
@@ -119,55 +119,43 @@ def fetch_single_url(target_url):
             price_tag = item.find('div', class_='catalog-item__price')
             img_tag = item.find('img', class_='catalog-item__img')
             
-            if not link_tag or not price_tag:
-                continue
+            (not link_tag or not price_tag) and continue
 
             item_url = "https://shafa.ua" + link_tag['href']
             ad_id = item_url.split('-')[0].split('/')[-1]
             price = price_tag.text.strip()
             
             title = img_tag.get('alt', 'Річ').strip() if img_tag else "Річ"
-            img_url = None
-            if img_tag:
-                img_url = img_tag.get('data-src') or img_tag.get('src')
+            img_url = (img_tag.get('data-src') or img_tag.get('src')) if img_tag else None
 
-            if ad_id:
-                found_items.append({
-                    'id': ad_id, 'url': item_url, 'title': title, 
-                    'price': price, 'image': img_url
-                })
+            ad_id and found_items.append({
+                'id': ad_id, 'url': item_url, 'title': title, 
+                'price': price, 'image': img_url
+            })
     except Exception:
         pass
         
     return found_items
 
-# ================= МАРШРУТ ПЕРЕАДРЕСАЦИИ (ТРЕКИНГ КЛИКОВ) =================
 @app.route('/go')
 def go_link():
     target_url = request.args.get('url')
     user_id = request.args.get('user')
     title = request.args.get('title', 'Товар')
     
-    # Определяем, кто именно нажал на ссылку
     user_name = "Дівчина" if user_id == "960647529" else "Ти"
     
-    # Отправляем уведомление тебе
     notify_text = f"✅ <b>{user_name}</b> перейшла на Шафу дивитися:\n<i>{title}...</i>"
     tg_requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         json={"chat_id": MY_CHAT_ID, "text": notify_text, "parse_mode": "HTML"}
     )
     
-    # Моментально перекидываем пользователя на страницу товара
-    if target_url:
-        return redirect(target_url)
-    return "Посилання не знайдено", 404
-
-# =========================================================================
+    return redirect(target_url) if target_url else ("Посилання не знайдено", 404)
 
 @app.route('/')
 def index():
-    return "🟢 Бот активен! База данных подключена."
+    return "🟢 Бот активен! База MongoDB подключена."
 
 @app.route('/run_bot')
 def run_scraper():
@@ -187,25 +175,22 @@ def run_scraper():
                 ad_id = ad['id']
                 current_price = ad['price']
                 
-                if ad_id not in seen_ads:
-                    ad['is_discount'] = False
-                    messages_to_send.append(ad)
-                    new_data_to_save[ad_id] = current_price
-                    seen_ads[ad_id] = current_price 
-                
-                elif seen_ads[ad_id] != current_price:
-                    ad['is_discount'] = True
-                    ad['old_price'] = seen_ads[ad_id]
-                    messages_to_send.append(ad)
-                    new_data_to_save[ad_id] = current_price
-                    seen_ads[ad_id] = current_price
+                ad_id_in_seen = ad_id in seen_ads
+                price_changed = ad_id_in_seen and seen_ads[ad_id] != current_price
 
-    if total_parsed_items == 0:
-        warning_msg = "⚠️ <b>Алярм! Парсер осліп.</b>\nШафа заблокувала IP або змінилась верстка сайту."
+                # Обновление параметров выполняется в зависимости от наличия товара в базе
+                (not ad_id_in_seen) and (ad.update({'is_discount': False}))
+                price_changed and (ad.update({'is_discount': True, 'old_price': seen_ads[ad_id]}))
+                
+                (not ad_id_in_seen or price_changed) and (messages_to_send.append(ad), new_data_to_save.update({ad_id: current_price}), seen_ads.update({ad_id: current_price}))
+
+    total_parsed_items == 0 and (
         tg_requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            json={"chat_id": MY_CHAT_ID, "text": warning_msg, "parse_mode": "HTML"}
+            json={"chat_id": MY_CHAT_ID, "text": "⚠️ <b>Алярм! Парсер осліп.</b>\nШафа заблокувала IP або змінилась верстка сайту.", "parse_mode": "HTML"}
         )
+    )
+    if total_parsed_items == 0:
         return "Парсер ослеп", 500
 
     save_seen_batch(new_data_to_save)
