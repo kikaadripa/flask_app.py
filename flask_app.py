@@ -17,10 +17,10 @@ CHAT_IDS = ["617384936", "960647529"]
 MY_CHAT_ID = "617384936"
 
 # Твой адрес на PythonAnywhere (замени ТВОЙ_ЛОГИН на реальный)
-HOST_URL = "https://ТВОЙ_ЛОГИН.pythonanywhere.com"
+HOST_URL = "https://flask-app-pych.onrender.com"
 
 SHAFA_URLS = [
-    "https://shafa.ua/uk/men/kofty/olimpiyki?sort=4",
+    "https://shafa.ua/uk/clothes?brands=4&price_to=800&search_text=%D0%BE%D0%BB%D1%96%D0%BC%D0%BF%D1%96%D0%B9%D0%BA%D0%B0&sort=4",
 ]
 
 DB_FILE = os.path.join(os.path.dirname(__file__), "seen_shafa.json")
