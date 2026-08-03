@@ -21,7 +21,7 @@ SHAFA_URLS = [
 ]
 
 # Вставь сюда свой реальный адрес кластера и пароль от MongoDB
-MONGO_URI = "mongodb+srv://waano2467_db_user:cCznoKoPt272dPyt@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority"
+MONGO_URI = "mongodb+srv://waano2467_db_user:cMrOuT98pswQRhQT@cluster0.kgfz64m.mongodb.net/?appName=Cluster0"
 
 # Вставь сюда свой ключ от ScraperAPI
 SCRAPER_API_KEY = "94489c57d7aac6605ef978a93c277b0b"
