@@ -1,9 +1,7 @@
 from flask import Flask, request, redirect
 import requests as tg_requests
-from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
 import time
-import random
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pymongo import MongoClient, UpdateOne
@@ -22,8 +20,11 @@ SHAFA_URLS = [
     "https://shafa.ua/uk/clothes?brands=4&price_to=800&search_text=%D0%BE%D0%BB%D1%96%D0%BC%D0%BF%D1%96%D0%B9%D0%BA%D0%B0&sort=4",
 ]
 
-# Угловые скобки удалены, логин и пароль оставлены чистыми
-MONGO_URI = "mongodb+srv://waano2467_db_user:cCznoKoPt272dPyt@cluster0.kgfz64m.mongodb.net/?appName=Cluster0"
+# Вставь сюда свой реальный адрес кластера и пароль от MongoDB
+MONGO_URI = "mongodb+srv://waano2467_db_user:cCznoKoPt272dPyt@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority"
+
+# Вставь сюда свой ключ от ScraperAPI
+SCRAPER_API_KEY = "94489c57d7aac6605ef978a93c277b0b"
 # =============================================
 
 client = MongoClient(MONGO_URI)
@@ -111,9 +112,12 @@ def send_telegram_ad(ad):
 
 def fetch_single_url(target_url):
     found_items = []
+    
+    # Запрос идет через прокси-сервер ScraperAPI
+    api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}"
+    
     try:
-        time.sleep(random.uniform(0.1, 1.5)) 
-        response = curl_requests.get(target_url, impersonate="chrome110", timeout=15)
+        response = tg_requests.get(api_url, timeout=45)
         soup = BeautifulSoup(response.text, 'html.parser')
 
         items = soup.find_all('li', class_='catalog-item')
@@ -138,7 +142,8 @@ def fetch_single_url(target_url):
                     'id': ad_id, 'url': item_url, 'title': title, 
                     'price': price, 'image': img_url
                 })
-    except Exception:
+    except Exception as e:
+        print(f"Ошибка при сборе данных: {e}")
         pass
         
     return found_items
@@ -163,7 +168,7 @@ def go_link():
 
 @app.route('/')
 def index():
-    return "🟢 Бот активен! База MongoDB подключена."
+    return "🟢 Бот активен! База MongoDB подключена. ScraperAPI готов."
 
 @app.route('/run_bot')
 def run_scraper():
@@ -201,7 +206,7 @@ def run_scraper():
     if total_parsed_items == 0:
         tg_requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            json={"chat_id": MY_CHAT_ID, "text": "⚠️ <b>Алярм! Парсер осліп.</b>\nШафа заблокувала IP або змінилась верстка сайту.", "parse_mode": "HTML"}
+            json={"chat_id": MY_CHAT_ID, "text": "⚠️ <b>Алярм! Парсер осліп.</b>\nМожливо, закінчилися ліміти ScraperAPI або змінилася верстка сайту.", "parse_mode": "HTML"}
         )
         return "Парсер ослеп", 500
 
