@@ -23,7 +23,7 @@ SHAFA_URLS = [
 ]
 
 # Угловые скобки удалены, логин и пароль оставлены чистыми
-MONGO_URI = "mongodb+srv://waano2467_db_user:cCznoKoPt272dPyt@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority"
+MONGO_URI = "mongodb+srv://waano2467_db_user:<db_password>@cluster0.kgfz64m.mongodb.net/?appName=Cluster0"
 # =============================================
 
 client = MongoClient(MONGO_URI)
