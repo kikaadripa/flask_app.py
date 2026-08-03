@@ -22,8 +22,8 @@ SHAFA_URLS = [
     "https://shafa.ua/uk/clothes?brands=4&price_to=800&search_text=%D0%BE%D0%BB%D1%96%D0%BC%D0%BF%D1%96%D0%B9%D0%BA%D0%B0&sort=4",
 ]
 
-# Строка подключения из MongoDB Atlas (замени на свою)
-MONGO_URI = "mongodb+srv://<waano2467_db_user>:<cCznoKoPt272dPyt>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority"
+# Угловые скобки удалены, логин и пароль оставлены чистыми
+MONGO_URI = "mongodb+srv://waano2467_db_user:cCznoKoPt272dPyt@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority"
 # =============================================
 
 client = MongoClient(MONGO_URI)
@@ -41,12 +41,16 @@ def save_seen_batch(new_data_dict):
     for ad_id, price in new_data_dict.items():
         operations.append(UpdateOne({"_id": ad_id}, {"$set": {"price": price}}, upsert=True))
     
-    # При наличии новых данных выполняется массовое обновление
-    operations and collection.bulk_write(operations)
+    if operations:
+        collection.bulk_write(operations)
 
 def send_telegram_ad(ad):
     is_discount = ad.get('is_discount')
-    caption = f"📉 <b>Зниження ціни на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n❌ Стара ціна: <s>{ad['old_price']}</s>\n✅ Нова ціна: {ad['price']}" if is_discount else f"🔥 <b>Нова річ на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n💰 {ad['price']}"
+    
+    if is_discount:
+        caption = f"📉 <b>Зниження ціни на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n❌ Стара ціна: <s>{ad['old_price']}</s>\n✅ Нова ціна: {ad['price']}"
+    else:
+        caption = f"🔥 <b>Нова річ на Шафі!</b>\n\n🛍 <b>{ad['title']}</b>\n💰 {ad['price']}"
         
     short_title = quote(ad['title'][:25])
     safe_url = quote(ad['url'])
@@ -89,8 +93,8 @@ def send_telegram_ad(ad):
                     success = True
                     result_data = response.json()
                     
-                    # Кеширование файла ускоряет последующую отправку
-                    (not cached_file_id and current_photo and 'photo' in result_data.get('result', {})) and (cached_file_id := result_data['result']['photo'][-1]['file_id'])
+                    if not cached_file_id and current_photo and 'photo' in result_data.get('result', {}):
+                        cached_file_id = result_data['result']['photo'][-1]['file_id']
                     
                     time.sleep(1.5) 
                     
@@ -119,7 +123,8 @@ def fetch_single_url(target_url):
             price_tag = item.find('div', class_='catalog-item__price')
             img_tag = item.find('img', class_='catalog-item__img')
             
-            (not link_tag or not price_tag) and continue
+            if not link_tag or not price_tag:
+                continue
 
             item_url = "https://shafa.ua" + link_tag['href']
             ad_id = item_url.split('-')[0].split('/')[-1]
@@ -128,10 +133,11 @@ def fetch_single_url(target_url):
             title = img_tag.get('alt', 'Річ').strip() if img_tag else "Річ"
             img_url = (img_tag.get('data-src') or img_tag.get('src')) if img_tag else None
 
-            ad_id and found_items.append({
-                'id': ad_id, 'url': item_url, 'title': title, 
-                'price': price, 'image': img_url
-            })
+            if ad_id:
+                found_items.append({
+                    'id': ad_id, 'url': item_url, 'title': title, 
+                    'price': price, 'image': img_url
+                })
     except Exception:
         pass
         
@@ -151,7 +157,9 @@ def go_link():
         json={"chat_id": MY_CHAT_ID, "text": notify_text, "parse_mode": "HTML"}
     )
     
-    return redirect(target_url) if target_url else ("Посилання не знайдено", 404)
+    if target_url:
+        return redirect(target_url)
+    return "Посилання не знайдено", 404
 
 @app.route('/')
 def index():
@@ -160,6 +168,7 @@ def index():
 @app.route('/run_bot')
 def run_scraper():
     seen_ads = load_seen()
+    is_first_run = len(seen_ads) == 0
     messages_to_send = []
     new_data_to_save = {}
     total_parsed_items = 0
@@ -178,24 +187,27 @@ def run_scraper():
                 ad_id_in_seen = ad_id in seen_ads
                 price_changed = ad_id_in_seen and seen_ads[ad_id] != current_price
 
-                # Обновление параметров выполняется в зависимости от наличия товара в базе
-                (not ad_id_in_seen) and (ad.update({'is_discount': False}))
-                price_changed and (ad.update({'is_discount': True, 'old_price': seen_ads[ad_id]}))
+                if not ad_id_in_seen:
+                    ad['is_discount'] = False
+                elif price_changed:
+                    ad['is_discount'] = True
+                    ad['old_price'] = seen_ads[ad_id]
                 
-                (not ad_id_in_seen or price_changed) and (messages_to_send.append(ad), new_data_to_save.update({ad_id: current_price}), seen_ads.update({ad_id: current_price}))
+                if not ad_id_in_seen or price_changed:
+                    messages_to_send.append(ad)
+                    new_data_to_save[ad_id] = current_price
+                    seen_ads[ad_id] = current_price
 
-    total_parsed_items == 0 and (
+    if total_parsed_items == 0:
         tg_requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             json={"chat_id": MY_CHAT_ID, "text": "⚠️ <b>Алярм! Парсер осліп.</b>\nШафа заблокувала IP або змінилась верстка сайту.", "parse_mode": "HTML"}
         )
-    )
-    if total_parsed_items == 0:
         return "Парсер ослеп", 500
 
     save_seen_batch(new_data_to_save)
 
-    if not load_seen(): 
+    if is_first_run: 
         return "Первый запуск: база сохранена."
 
     for ad in messages_to_send:
