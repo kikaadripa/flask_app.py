@@ -113,11 +113,12 @@ def send_telegram_ad(ad):
 def fetch_single_url(target_url):
     found_items = []
     
-    # Запрос идет через прокси-сервер ScraperAPI
-    api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}"
+    # Запрос идет через прокси-сервер ScraperAPI с включенным рендерингом JS (render=true)
+    api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true"
     
     try:
-        response = tg_requests.get(api_url, timeout=45)
+        # Таймаут увеличен, так как загрузка полноценного браузера занимает больше времени
+        response = tg_requests.get(api_url, timeout=60)
         soup = BeautifulSoup(response.text, 'html.parser')
 
         items = soup.find_all('li', class_='catalog-item')
