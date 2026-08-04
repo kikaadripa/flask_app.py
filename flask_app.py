@@ -119,6 +119,9 @@ def fetch_single_url(target_url):
     try:
         # Таймаут увеличен, так как загрузка полноценного браузера занимает больше времени
         response = tg_requests.get(api_url, timeout=60)
+        print("===== ОТВЕТ ШАФЫ =====")
+        print(response.text[:1000]) # Выведет первые 1000 символов страницы
+        print("======================")
         soup = BeautifulSoup(response.text, 'html.parser')
 
         items = soup.find_all('li', class_='catalog-item')
