@@ -115,7 +115,7 @@ def fetch_single_url(target_url):
     
     # Запрос идет через прокси-сервер ScraperAPI с включенным рендерингом JS (render=true)
     # Добавлен параметр &premium=true для обхода жесткой защиты
-    api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&premium=true"
+    api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true&ultra_premium=true"
     
     try:
         # Таймаут увеличен, так как загрузка полноценного браузера занимает больше времени
